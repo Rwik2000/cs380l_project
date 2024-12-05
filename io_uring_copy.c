@@ -9,8 +9,8 @@
 #include <sys/ioctl.h>
 #include <liburing.h>
 
-#define QD  2
-#define BS (16 * 1024)
+#define QD  10
+#define BS (10 * 1024)
 
 static int infd, outfd;
 

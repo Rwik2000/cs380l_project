@@ -11,7 +11,7 @@
 #include <liburing.h>
 
 #define QD  8
-#define BS (10 * 1024 * 1024)
+#define BS (100 * 1024 * 1024)
 
 static int infd, outfd;
 

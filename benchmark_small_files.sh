@@ -1,83 +1,89 @@
 #!/bin/bash
 
-# Define parameters
-NUM_FILES=100
-FILE_SIZE=10M
-SRC_DIR="small_files"
-RESULTS_FILE="results_small_files_raw.csv"
-TRIALS=10
+# Remove previous results
+RESULTS_FILE="benchmark_results.csv"
+rm -f $RESULTS_FILE
 
-# Cleanup and setup
-rm -rf $SRC_DIR small_files_cp small_files_mv small_files_rsync small_files_custom small_files_io_uring_cp small_files_io_uring_mv
-mkdir $SRC_DIR
+# Create the results file and add a header
+echo "File Size,Tool,Run,Time(s),User Time(s),System Time(s),Max Memory(KB)" > $RESULTS_FILE
 
-# Generate small files
-echo "Generating $NUM_FILES files of size $FILE_SIZE in $SRC_DIR..."
-for i in $(seq 1 $NUM_FILES); do
-    dd if=/dev/zero of=$SRC_DIR/file_$i bs=$FILE_SIZE count=1 >/dev/null 2>&1
-done
+# File sizes to test
+FILE_SIZES=("10K" "100K" "1M" "10M" "100M")
+SAMPLES=5
 
-# Prepare results file
-echo "Tool,Operation,Trial,Time(s),User Time(s),System Time(s),Max Memory(KB)" > $RESULTS_FILE
+# Directories
+SRC_DIR="testingdir"
+DST_DIR="testingdircopy"
+COMMANDS=("./compiled/io_uring_recursive" "cp -r")
 
-# Benchmark function
-benchmark() {
-    TOOL=$1
-    CMD=$2
-    OPERATION=$3
-    DEST_DIR=$4
+# Function to generate files
+generate_files() {
+    local file_size=$1
+    local num_files=16
 
+    rm -rf $SRC_DIR
+    mkdir $SRC_DIR
+    echo "Generating $num_files files of size $file_size in $SRC_DIR..."
 
-
-
-    for TRIAL in $(seq 1 $TRIALS); do
-
-
-        TMP_SRC_DIR="small_files_tmp"
-        rm -rf $TMP_SRC_DIR
-        cp -r $SRC_DIR $TMP_SRC_DIR
-
-        echo "Trial $TRIAL: Benchmarking $TOOL for $OPERATION..."
-        
-        # Flush disk caches before running the command
-        sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
-
-        # Create a unique destination directory for each trial
-        # TRIAL_DEST_DIR="${DEST_DIR}"
-        mkdir $DEST_DIR
-
-        # Run the command
-        /usr/bin/time -v $CMD $TMP_SRC_DIR $DEST_DIR 2>tmp_time.log
-        sync  # Flush caches again after the operation
-
-        # Extract timing and memory information
-        TIME=$(grep "Elapsed (wall clock) time" tmp_time.log | awk '{print $8}')
-        USER_TIME=$(grep "User time (seconds)" tmp_time.log | awk '{print $4}')
-        SYSTEM_TIME=$(grep "System time (seconds)" tmp_time.log | awk '{print $4}')
-        MAX_MEM=$(grep "Maximum resident set size" tmp_time.log | awk '{print $6}')
-        
-        echo "$TOOL,$OPERATION,$TRIAL,$TIME,$USER_TIME,$SYSTEM_TIME,$MAX_MEM" >> $RESULTS_FILE
-
-        # Cleanup: Remove destination directory after last trial, if needed
-        if [ "$TRIAL" -eq "$TRIALS" ]; then
-            echo "Preserving final result for $TOOL in $TRIAL_DEST_DIR"
-        else
-            rm -rf $DEST_DIR
-        fi
+    for i in $(seq 1 $num_files); do
+        dd if=/dev/urandom bs=$file_size count=1 of=$SRC_DIR/test-$i.bin status=none
     done
 }
 
-# Run benchmarks
-benchmark "cp" "cp -r" "Copy" "small_files_cp"
-benchmark "io_uring cp" "./compiled/io_uring_copy_dir" "Copy io_uring" "small_files_cp_io_uring"
+benchmark() {
+    local tool=$1
+    local command=$2
+    local file_size=$3
 
-benchmark "mv" "mv -r" "Move" "small_files_mv"
-benchmark "io_uring mv" "./compiled/io_uring_mv_dir" "Move io_uring" "small_files_mv_io_uring"
+    for run in $(seq 1 $SAMPLES); do
+        # Flush disk caches
+        sync
+        sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
-benchmark "rsync" "rsync -r" "rsync" "small_files_rsync"
-benchmark "io_uring rsync" "./compiled/io_uring_rsync" "rsync io_uring" "small_files_rsync_io_uring"
+        # Record start time
+        local start_time=$(date +%s%N)
 
-# Cleanup temporary files
-rm -rf tmp_time.log
+        # Run the command
+        sh -c "$command $SRC_DIR $DST_DIR"
 
-echo "Benchmarking complete. Raw results saved to $RESULTS_FILE."
+        # Record end time
+        local end_time=$(date +%s%N)
+
+        # Calculate elapsed time in seconds with high precision
+        local elapsed_ns=$((end_time - start_time))
+        local elapsed_sec=$(echo "scale=9; $elapsed_ns / 1000000000" | bc)
+
+        # Extract user/system times and memory usage
+        /usr/bin/time -v sh -c "$command $SRC_DIR $DST_DIR" 2>tmp_time.log
+
+        USER_TIME=$(grep "User time (seconds)" tmp_time.log | awk '{print $4}')
+        SYSTEM_TIME=$(grep "System time (seconds)" tmp_time.log | awk '{print $4}')
+        MAX_MEM=$(grep "Maximum resident set size" tmp_time.log | awk '{print $6}')
+
+        # Log results with high precision time
+        echo "$file_size,$tool,$run,$elapsed_sec,$USER_TIME,$SYSTEM_TIME,$MAX_MEM" >> $RESULTS_FILE
+
+        # Cleanup destination directory
+        rm -rf $DST_DIR
+    done
+}
+
+
+# Main loop to run benchmarks for different file sizes
+for size in "${FILE_SIZES[@]}"; do
+    generate_files $size
+
+    for cmd in "${COMMANDS[@]}"; do
+        if [[ $cmd == "./compiled/io_uring_recursive" ]]; then
+            TOOL="io_uring_recursive"
+        else
+            TOOL="cp -r"
+        fi
+
+        benchmark "$TOOL" "$cmd" "$size"
+    done
+done
+
+# Cleanup
+rm -rf $SRC_DIR $DST_DIR tmp_time.log
+echo "Benchmarking complete. Results saved to $RESULTS_FILE."
