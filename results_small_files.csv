@@ -1,0 +1,7 @@
+Tool,Operation,Time(s),User Time(s),System Time(s),Max Memory(KB)
+cp,Copy,0:00.33,0.05,0.26,3072
+mv,Move,0:00.00,0.00,0.00,2504
+rsync,Sync,0:00.00,0.00,0.00,2656
+custom_rsync,Custom Sync,0:00.00,0.00,0.00,1340
+io_uring_cp,Custom Copy,0:00.00,0.00,0.00,1204
+io_uring_mv,Custom Move,0:00.00,0.00,0.00,1108

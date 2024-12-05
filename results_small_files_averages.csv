@@ -1,0 +1,7 @@
+Tool,Operation,Average Time(s),Average User Time(s),Average System Time(s),Average Max Memory(KB)
+cp,Copy,,.04,.22,3054.80
+mv,Move,,0,0,2750.00
+rsync,Sync,,0,0,2660.80
+custom_rsync,Custom Sync,,0,0,1331.20
+io_uring_cp,Custom Copy,,0,0,917.20
+io_uring_mv,Custom Move,,0,0,1136.00

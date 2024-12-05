@@ -89,7 +89,7 @@ static void queue_write(struct io_uring *ring, struct io_data *data) {
     io_uring_submit(ring);
 }
 
-static int copy_file(struct io_uring *ring, const char *src, const char *dst) {
+static int move_file(struct io_uring *ring, const char *src, const char *dst) {
     struct stat st;
     if (stat(src, &st) < 0) {
         perror("stat");
@@ -119,14 +119,20 @@ static int copy_file(struct io_uring *ring, const char *src, const char *dst) {
             snprintf(src_path, sizeof(src_path), "%s/%s", src, entry->d_name);
             snprintf(dst_path, sizeof(dst_path), "%s/%s", dst, entry->d_name);
 
-            // Recursively copy files and directories
-            if (copy_file(ring, src_path, dst_path) != 0) {
+            // Recursively move files and directories
+            if (move_file(ring, src_path, dst_path) != 0) {
                 closedir(dir);
                 return 1;
             }
         }
 
         closedir(dir);
+
+        // Remove the empty source directory
+        if (rmdir(src) < 0) {
+            perror("rmdir");
+            return 1;
+        }
     } else if (S_ISREG(st.st_mode)) {
         // Open source and destination files
         infd = open(src, O_RDONLY);
@@ -212,6 +218,21 @@ static int copy_file(struct io_uring *ring, const char *src, const char *dst) {
 
         close(infd);
         close(outfd);
+
+        // Delete the source file
+        if (S_ISDIR(st.st_mode)) {
+            // Remove directory
+            if (rmdir(src) < 0) {
+                perror("rmdir");
+                return 1;
+            }
+        } else {
+            // Remove file
+            if (unlink(src) < 0) {
+                perror("unlink");
+                return 1;
+            }
+        }
     }
 
     return 0;
@@ -227,7 +248,7 @@ int main(int argc, char *argv[]) {
 
     if (setup_context(QD, &ring)) return 1;
 
-    if (copy_file(&ring, argv[1], argv[2]) != 0) {
+    if (move_file(&ring, argv[1], argv[2]) != 0) {
         io_uring_queue_exit(&ring);
         return 1;
     }
